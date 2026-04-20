@@ -8,8 +8,9 @@ from PyQt5.QtWidgets import (
     QDateEdit, QTableWidget, QTableWidgetItem, 
     QMessageBox, QSplitter, QLabel, QHeaderView,
     QGroupBox, QDialog, QPlainTextEdit, QProgressBar,
-    QSpinBox
+    QSpinBox, QDoubleSpinBox
 )
+import json
 
 from core.database import PrayerDatabase
 from core.cei_scraper import fetch_cei_text
@@ -80,6 +81,8 @@ class PrayersTab(QWidget):
         super().__init__()
         self.settings = AppSettings()
         self.db = PrayerDatabase(self.settings.db_path)
+        self.current_prayer_id = None
+        self.current_prayer_data = None
         self._init_ui()
         self.load_table_data()
 
@@ -136,6 +139,11 @@ class PrayersTab(QWidget):
         self.btn_save.clicked.connect(self._on_save_prayer)
         self.btn_clear = QPushButton("Reset Form")
         self.btn_clear.clicked.connect(self._clear_form)
+        self.btn_adjust = QPushButton("📏 Aggiusta Meditazione")
+        self.btn_adjust.setEnabled(False)
+        self.btn_adjust.clicked.connect(self._on_adjust_meditation)
+        
+        btn_layout.addWidget(self.btn_adjust)
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_clear)
         btn_layout.addWidget(self.btn_save)
@@ -223,12 +231,36 @@ class PrayersTab(QWidget):
         p_id = int(p_id_item.text())
         prayer = self.db.get_prayer(p_id)
         if prayer:
+            self.current_prayer_id = p_id
+            self.current_prayer_data = prayer
             self.date_edit.setDate(QDate.fromString(prayer["date"], "yyyy-MM-dd"))
             self.combo_type.setCurrentText(prayer["prayer_type"])
             self.le_scripture_ref.setText(prayer["scripture_ref"])
             self.te_scripture_text.setPlainText(prayer["scripture_text"])
             self.le_author.setText(prayer["meditation_author"])
             self.te_meditation.setPlainText(prayer["meditation_text"])
+            
+            # Abilita aggiustamento solo se c'è il transcript completo
+            self.btn_adjust.setEnabled(prayer.get("full_data_json") is not None)
+
+    def _on_adjust_meditation(self):
+        if not self.current_prayer_data:
+            return
+            
+        dialog = MeditationAdjustDialog(self.current_prayer_data, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_start = dialog.start_spin.value()
+            new_end = dialog.end_spin.value()
+            new_text = dialog.get_meditation_text()
+            
+            # Aggiorna DB
+            self.db.update_prayer_bounds(self.current_prayer_id, new_start, new_end, new_text)
+            # Ricarica UI
+            self.te_meditation.setPlainText(new_text)
+            self.current_prayer_data["meditation_text"] = new_text
+            self.current_prayer_data["video_start"] = new_start
+            self.current_prayer_data["video_end"] = new_end
+            QMessageBox.information(self, "Successo", "Porzione meditazione aggiornata!")
 
     def _on_delete_prayer(self):
         selected = self.table.selectedItems()

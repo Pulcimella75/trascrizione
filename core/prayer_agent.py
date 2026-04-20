@@ -222,7 +222,14 @@ class PrayerAgentWorker(QThread):
 
         if self._is_aborted: return
 
-        # 7. Salva nel DB
+        # 7. Salva nel DB (includendo i dati per l'aggiustamento manuale)
+        import json
+        segments_data = [
+            {"start": s.start, "end": s.end, "text": s.text} 
+            for s in segments
+        ]
+        full_json = json.dumps(segments_data)
+        
         self.db.add_prayer(
             date=formatted_date,
             prayer_type=prayer_type,
@@ -230,7 +237,10 @@ class PrayerAgentWorker(QThread):
             scripture_text=scripture_text or "",
             author=author,
             meditation=meditation_text,
-            video_id=video_id
+            video_id=video_id,
+            v_start=start_sec,
+            v_end=end_sec,
+            full_json=full_json
         )
         self.log_message.emit(f"✅ Salvato: {prayer_type} del {formatted_date}")
 
@@ -296,23 +306,28 @@ class PrayerAgentWorker(QThread):
         start_sec = 0.0
         
         # --- 1. TROVA L'INIZIO ---
-        # Cerchiamo l'ULTIMA occorrenza delle formule di fine lettura per essere sicuri di saltare tutto il brano biblico.
-        # Definiamo regex flessibili per ignorare punteggiatura o variazioni comuni.
-        start_regex = re.compile(r'(parola del signore|vangelo del signore|parola di dio|parola di salvezza)', re.IGNORECASE)
+        # Cerchiamo le formule di fine lettura. 
+        # IMPORTANTE: Limitiamo la ricerca ai primi 18 minuti (1080s) per evitare 
+        # falsi positivi (es. il predicatore che cita "Nel Vangelo del Signore..." nell'omelia).
+        start_regex = re.compile(r'(parola del signore|vangelo del signore|parola di dio|parola di salvezza|lode a te o cristo|rendiamo grazie a dio)', re.IGNORECASE)
         last_found_index = -1
         
         for i, s in enumerate(segments):
+            if s.start > 1080: # Se superiamo i 18 minuti, smettiamo di cercare l'inizio litugico
+                break
             if start_regex.search(s.text):
                 last_found_index = i
         
         if last_found_index != -1:
+            # L'inizio della meditazione è subito dopo la risposta liturgica
             start_sec = segments[last_found_index].end
-            self.log_message.emit(f"📍 Trovata fine Lettura/Vangelo al secondo {int(start_sec)}.")
+            self.log_message.emit(f"📍 Fine liturgia individuata al secondo {int(start_sec)}.")
         else:
-            # Fallback agli Alleluia se non troviamo la frase testuale
+            # Fallback agli Alleluia (sempre nei primi 18 min)
             clusters = []
             current_cluster = []
             for s in segments:
+                if s.start > 1080: break
                 txt = s.text.lower()
                 if 'allelu' in txt or 'alelu' in txt:
                     if not current_cluster:
@@ -321,8 +336,7 @@ class PrayerAgentWorker(QThread):
                         if s.start - current_cluster[-1].end < 45.0:
                             current_cluster.append(s)
                         else:
-                            clusters.append(current_cluster)
-                            current_cluster = [s]
+                            clusters.append(current_cluster); current_cluster = [s]
             if current_cluster: clusters.append(current_cluster)
             major_clusters = [c for c in clusters if len(c) >= 3]
             
@@ -335,7 +349,7 @@ class PrayerAgentWorker(QThread):
             elif len(clusters) == 1:
                 start_sec = clusters[0][-1].end
             else:
-                self.log_message.emit("⚠️ Nessun marker di inizio (Parola/Alleluia) individuato.")
+                self.log_message.emit("⚠️ Rilevamento inizio fallito, uso 0s.")
 
         # --- 2. TROVA LA FINE ---
         # Impostiamo un limite massimo ragionevole (20 minuti dall'inizio della meditazione)
