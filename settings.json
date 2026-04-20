@@ -1,0 +1,13 @@
+{
+  "model_dir": "F:/Whisper",
+  "output_dir": "F:/Trascrizioni",
+  "temp_dir": "F:/Trascrizioni/temp",
+  "default_model": "large-v2",
+  "default_language": "auto",
+  "custom_words": [],
+  "cookies_file": "F:/Downloads/www.youtube.com_cookies.txt",
+  "last_output_dir": "F:\\OneDrive\\Desktop",
+  "last_model_dir": "",
+  "window_geometry": "01d9d0cb000300000000017100000000000005f000000407000001720000001f000005ef0000040600000000000000000780000001720000001f000005ef00000406",
+  "db_path": "G:\\Il mio Drive\\Preghiere\\prayers.db"
+}

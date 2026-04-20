@@ -1,0 +1,5 @@
+[2026-04-20 13:44:36] [INFO] [TrascrizioneApp] Sistema di logging inizializzato.
+[2026-04-20 13:44:36] [INFO] [TrascrizioneApp] File log: f:\Script\trascrizione\debug.log
+[2026-04-20 13:44:55] [INFO] [TrascrizioneApp.PrayerAgent] Skipping upcoming event wtp0MdQiJww
+[2026-04-20 13:44:56] [INFO] [TrascrizioneApp.PrayerAgent] Skipping upcoming event nFspV22q_lU
+[2026-04-20 13:45:09] [INFO] [TrascrizioneApp.Transcriber] Lancio sottoprocesso isolato per il modello da: f:\Script\trascrizione\core\transcribe_subprocess.py
