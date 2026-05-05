@@ -1,0 +1,28 @@
+{
+    "start_markers": [
+        "parola del signore",
+        "questa è la parola del signore",
+        "vangelo del signore",
+        "parola di dio",
+        "parola di salvezza",
+        "lode a te o cristo"
+    ],
+    "end_invocation_markers": [
+        "preghiamo",
+        "preghiamo il signore",
+        "signore ti preghiamo",
+        "signore ascolta la nostra preghiera",
+        "ascoltaci o signore",
+        "noi ti preghiamo",
+        "ti preghiamo",
+        "ti preghiamo per",
+        "per cristo nostro signore",
+        "per i secoli dei secoli",
+        "amen",
+        "kyrie eleison"
+    ],
+    "adjustment_history_analysis": {
+        "new_suggestions": [],
+        "last_analysis_id": 0
+    }
+}

@@ -52,10 +52,16 @@ class QueueItem:
     end_sec: float = 0.0
     error_msg: str = ""
     output_path: str = ""
+    is_local: bool = False
+    source_url: str = ""
+    download_retries: int = 0
 
     @property
     def display_name(self) -> str:
-        return os.path.basename(self.file_path)
+        name = os.path.basename(self.file_path)
+        if self.is_local:
+            return f"💾 {name}"
+        return name
 
     @property
     def range_str(self) -> str:

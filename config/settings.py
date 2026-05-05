@@ -21,6 +21,16 @@ _DEFAULT_SETTINGS = {
     "last_model_dir": "",
     "window_geometry": None,
     "db_path": r"G:\Il mio Drive\Preghiere\prayers.db",
+    "calibration_start_offset": 0.0,
+    # Titoli (sottostringa, case-insensitive) che identificano video da ESCLUDERE
+    "title_blacklist": [
+        "liturgia eucaristica",
+        "santa messa",
+        "messa ",
+        "celebrazione eucaristica",
+        "via crucis",
+        "rosario",
+    ],
 }
 
 _SETTINGS_FILE = Path(__file__).parent.parent / "settings.json"
@@ -136,6 +146,30 @@ class AppSettings:
     def db_path(self, value: str):
         self._data["db_path"] = value
         self.save()
+
+    @property
+    def calibration_start_offset(self) -> float:
+        return self._data.get("calibration_start_offset", 0.0)
+
+    @calibration_start_offset.setter
+    def calibration_start_offset(self, value: float):
+        self._data["calibration_start_offset"] = value
+        self.save()
+
+    @property
+    def title_blacklist(self) -> list:
+        """Lista di sottostringhe (case-insensitive) per escludere video indesiderati."""
+        return self._data.get("title_blacklist", _DEFAULT_SETTINGS["title_blacklist"])
+
+    @title_blacklist.setter
+    def title_blacklist(self, value: list):
+        self._data["title_blacklist"] = value
+        self.save()
+
+    def is_title_blacklisted(self, title: str) -> bool:
+        """Ritorna True se il titolo contiene uno dei termini della blacklist."""
+        title_lower = title.lower()
+        return any(term in title_lower for term in self.title_blacklist)
 
     def ensure_dirs(self):
         """Crea le directory necessarie se non esistono."""

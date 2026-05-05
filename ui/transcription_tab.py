@@ -141,6 +141,7 @@ class TranscriptionTab(QWidget):
 
     transcription_ready = pyqtSignal(str, str)
     status_update = pyqtSignal(str)
+    MAX_DOWNLOAD_RETRIES = 2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -172,14 +173,10 @@ class TranscriptionTab(QWidget):
         yt_url_row = QHBoxLayout()
         self.edit_yt_url = QLineEdit()
         self.edit_yt_url.setPlaceholderText("Incolla URL YouTube (es. https://www.youtube.com/watch?v=...)")
-        self.btn_add_yt = QPushButton("➕  Aggiungi")
+        self.btn_add_yt = QPushButton("➕  Aggiungi alla coda")
         self.btn_add_yt.clicked.connect(self._on_add_youtube)
-        self.btn_detect_med= QPushButton("🔍 Rileva Omelia")
-        self.btn_detect_med.setToolTip("Cerca la meditazione (dopo l'Alleluia e termina con pausa) e l'aggiunge alla coda")
-        self.btn_detect_med.clicked.connect(self._on_detect_meditation)
         yt_url_row.addWidget(self.edit_yt_url)
         yt_url_row.addWidget(self.btn_add_yt)
-        yt_url_row.addWidget(self.btn_detect_med)
         yt_outer.addLayout(yt_url_row)
 
         # Riga cookies
@@ -230,15 +227,9 @@ class TranscriptionTab(QWidget):
 
         # Range temporale
         self.time_range = TimeRangeWidget()
-        self.btn_open_navigator = QPushButton("🎬  Naviga video...")
-        self.btn_open_navigator.setObjectName("btn_flat")
-        self.btn_open_navigator.setToolTip(
-            "Apri il player video per selezionare visivamente l'intervallo")
-        self.btn_open_navigator.clicked.connect(self._open_video_navigator)
 
         range_row = QHBoxLayout()
         range_row.addWidget(self.time_range)
-        range_row.addWidget(self.btn_open_navigator)
         opt_layout.addRow("Intervallo:", range_row)
 
         layout.addWidget(opt_box)
@@ -319,34 +310,13 @@ class TranscriptionTab(QWidget):
         self._add_to_queue(url, is_youtube=True)
         self.edit_yt_url.clear()
 
-    def _on_detect_meditation(self):
-        url = self.edit_yt_url.text().strip()
-        if not url.startswith("http"):
-            QMessageBox.warning(self, "URL non valido", "Inserisci un URL YouTube valido.")
-            return
-            
-        cookies = self._settings.cookies_file
-        self._set_ui_running(True)
-        self.btn_stop.setEnabled(True)
-        
-        self._meditation_finder = MeditationFinderWorker(url, cookies, self)
-        self._meditation_finder.progress.connect(self.progress_bar.setValue)
-        self._meditation_finder.status_message.connect(self._update_status)
-        self._meditation_finder.finished.connect(lambda s, e: self._on_meditation_found(url, s, e))
-        self._meditation_finder.error.connect(self._on_meditation_error)
-        self._meditation_finder.start()
-
-    def _on_meditation_found(self, url: str, start_sec: float, end_sec: float):
-        self._set_ui_running(False)
-        self._update_status("💡 Omelia trovata, aggiunta in coda.")
-        self.time_range.set_range(start_sec, end_sec)
-        self._add_to_queue(url, is_youtube=True)
-        self.edit_yt_url.clear()
-        
-    def _on_meditation_error(self, err: str):
-        self._set_ui_running(False)
-        self._update_status("Errore rilevamento.")
-        QMessageBox.warning(self, "Errore Rilevamento Omelia", f"Errore durante l'analisi:\n{err}")
+    def add_videos_to_queue(self, video_list: list):
+        """Metodo pubblico per aggiungere una lista di video (da dizionario yt-dlp) alla coda."""
+        for video in video_list:
+            video_id = video.get('id')
+            if video_id:
+                url = f"https://www.youtube.com/watch?v={video_id}"
+                self._add_to_queue(url, is_youtube=True)
 
     def _add_to_queue(self, path: str, is_youtube: bool = False):
         model = self.combo_model.currentText()
@@ -354,46 +324,23 @@ class TranscriptionTab(QWidget):
         start = self.time_range.get_start_sec()
         end   = self.time_range.get_end_sec()
 
+        is_local = False
+        if is_youtube:
+            local_path = YouTubeDownloaderWorker.check_if_downloaded(path, self._settings.temp_dir)
+            if local_path:
+                is_local = True
+
         item = QueueItem(
             file_path=path,
             model=model,
             language=lang,
             start_sec=start,
             end_sec=end,
+            is_local=is_local,
+            source_url=path if is_youtube else ""
         )
         self.queue_panel.add_item(item)
 
-    # ── Navigator video ───────────────────────────────────────────────────
-
-    def _open_video_navigator(self):
-        """Apre il player video per selezionare l'intervallo."""
-        # Usa il primo file video della coda, o chiedi all'utente
-        from PyQt5.QtWidgets import QFileDialog
-        pending = self.queue_panel.get_pending()
-        video_path = None
-
-        for item in pending:
-            ext = Path(item.file_path).suffix.lower()
-            if ext in SUPPORTED_VIDEO:
-                video_path = item.file_path
-                break
-
-        if not video_path:
-            video_path, _ = QFileDialog.getOpenFileName(
-                self, "Seleziona file video",
-                self._settings.get("last_output_dir", ""),
-                "Video (*.mp4 *.mkv *.avi *.mov *.webm *.ts *.wmv)",
-            )
-        if not video_path:
-            return
-
-        start = self.time_range.get_start_sec()
-        end   = self.time_range.get_end_sec()
-
-        dlg = VideoNavigatorDialog(video_path, start, end, self)
-        if dlg.exec_() == VideoNavigatorDialog.Accepted:
-            s, e = dlg.get_range()
-            self.time_range.set_range(s, e)
 
     # ── Trascrizione ──────────────────────────────────────────────────────
 
@@ -448,6 +395,21 @@ class TranscriptionTab(QWidget):
         self._yt_worker.start()
 
     def _on_yt_downloaded(self, item: QueueItem, local_path: str):
+        if not YouTubeDownloaderWorker.is_audio_file_valid(local_path):
+            if os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                except OSError:
+                    pass
+            if item.download_retries < self.MAX_DOWNLOAD_RETRIES:
+                item.download_retries += 1
+                item.file_path = item.source_url or item.file_path
+                self.queue_panel.update_status(item.file_path, FileStatus.WAITING)
+                self._update_status(f"File audio non valido, nuovo download (tentativo {item.download_retries}/{self.MAX_DOWNLOAD_RETRIES})...")
+                QTimer.singleShot(200, lambda it=item: self._download_youtube(it))
+                return
+            self._on_item_error(item, "Download completato ma file WAV corrotto/non valido.")
+            return
         item.file_path = local_path
         self._start_transcription(item)
 
@@ -484,6 +446,22 @@ class TranscriptionTab(QWidget):
         QTimer.singleShot(200, self._process_next)
 
     def _on_item_error(self, item: QueueItem, error: str):
+        is_youtube_item = bool(item.source_url)
+        current_local_exists = (not item.file_path.startswith("http")) and os.path.exists(item.file_path)
+        current_local_valid = YouTubeDownloaderWorker.is_audio_file_valid(item.file_path) if current_local_exists else True
+
+        if is_youtube_item and current_local_exists and not current_local_valid and item.download_retries < self.MAX_DOWNLOAD_RETRIES:
+            try:
+                os.remove(item.file_path)
+            except OSError:
+                pass
+            item.download_retries += 1
+            item.file_path = item.source_url
+            self.queue_panel.update_status(item.file_path, FileStatus.WAITING)
+            self._update_status(f"Audio corrotto rilevato, nuovo download (tentativo {item.download_retries}/{self.MAX_DOWNLOAD_RETRIES})...")
+            QTimer.singleShot(200, lambda it=item: self._download_youtube(it))
+            return
+
         self.queue_panel.update_status(item.file_path, FileStatus.ERROR, error)
         QMessageBox.warning(
             self, "Errore trascrizione",
@@ -513,7 +491,6 @@ class TranscriptionTab(QWidget):
         self.btn_start.setEnabled(not running)
         self.btn_stop.setEnabled(running)
         self.btn_add_yt.setEnabled(not running)
-        self.btn_detect_med.setEnabled(not running)
 
     def _update_status(self, msg: str):
         self.lbl_status.setText(msg)

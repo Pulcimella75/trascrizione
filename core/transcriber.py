@@ -72,7 +72,10 @@ class TranscriberWorker(QThread):
         end_sec: float = 0.0,
         parent=None,
     ):
-        super().__init__(parent)
+        if parent:
+            super().__init__(parent)
+        else:
+            super().__init__() # Non passiamo parent se siamo chiamati da un altro thread senza parent esplicito
         self.file_path = file_path
         self.model_dir = model_dir
         self.model_name = model_name
@@ -148,47 +151,68 @@ class TranscriberWorker(QThread):
         # Eseguiamo tramite subprocess catturando lo standard output JSON
         logger.info(f"Lancio sottoprocesso isolato per il modello da: {script_path}")
         
-        process = subprocess.Popen(
-            [sys.executable, script_path, cfg_file],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8',
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        )
+        try:
+            c_flags = 0
+            if os.name == "nt":
+                c_flags = subprocess.CREATE_NO_WINDOW
+
+            logger.debug(f"Esecuzione: {sys.executable} {script_path}")
+            process = subprocess.Popen(
+                [sys.executable, script_path, cfg_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=c_flags,
+                bufsize=1 # Line buffered
+            )
+        except Exception as e:
+            logger.error(f"Impossibile avviare il sottoprocesso: {e}")
+            self.error.emit(f"Errore avvio motore: {e}")
+            self._cleanup_files(outputs_to_clean)
+            return
         
         segments = []
         # Leggiamo in loop gli aggiornamenti dal processo separato
-        for line in iter(process.stdout.readline, ''):
-            if self._abort:
-                process.terminate()
-                self._cleanup_files(outputs_to_clean)
-                return
-                
-            line = line.strip()
-            if not line: continue
-            
-            try:
-                msg = json.loads(line)
-                mtype = msg.get("type")
-                
-                if mtype == "status":
-                    self.status_message.emit(msg["msg"])
-                elif mtype == "progress":
-                    self.progress.emit(msg["val"])
-                elif mtype == "segment":
-                    ts = TranscriptionSegment(msg["text"], msg["start"], msg["end"])
-                    self.segment_ready.emit(ts.text)
-                    self.progress.emit(msg["pct"])
-                elif mtype == "error":
-                    self.error.emit(f"Errore processo AI: {msg['msg']}")
+        try:
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                    
+                if self._abort:
+                    process.terminate()
                     self._cleanup_files(outputs_to_clean)
                     return
-                elif mtype == "done":
-                    break
-            except json.JSONDecodeError:
-                # Se il sottoprocesso stampa roba nativa (es. warning librerie C), loggala
-                logger.debug(f"[SubProcess]: {line}")
+                    
+                line = line.strip()
+                if not line: continue
+                
+                try:
+                    msg = json.loads(line)
+                    mtype = msg.get("type")
+                    
+                    if mtype == "status":
+                        self.status_message.emit(msg["msg"])
+                    elif mtype == "progress":
+                        self.progress.emit(msg["val"])
+                    elif mtype == "segment":
+                        ts = TranscriptionSegment(msg["text"], msg["start"], msg["end"])
+                        self.segment_ready.emit(ts.text)
+                        self.progress.emit(msg["pct"])
+                    elif mtype == "error":
+                        self.error.emit(f"Errore processo AI: {msg['msg']}")
+                        self._cleanup_files(outputs_to_clean)
+                        return
+                    elif mtype == "done":
+                        break
+                except json.JSONDecodeError:
+                    # Se il sottoprocesso stampa roba nativa (es. warning librerie C), loggala
+                    logger.debug(f"[SubProcess]: {line}")
+        except Exception as e:
+            logger.error(f"Errore durante la lettura del sottoprocesso: {e}")
+            self.error.emit(f"Errore comunicazione motore: {e}")
                 
         process.stdout.close()
         ret_code = process.wait()

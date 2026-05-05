@@ -21,6 +21,7 @@ from ui.model_manager_dialog import ModelManagerDialog
 from ui.custom_words_dialog import CustomWordsDialog
 from ui.settings_dialog import SettingsDialog
 from ui.prayers_tab import PrayersTab
+from ui.video_history_tab import VideoHistoryTab
 
 
 class MainWindow(QMainWindow):
@@ -92,6 +93,10 @@ class MainWindow(QMainWindow):
         self.prayers_tab = PrayersTab()
         self.tabs.addTab(self.prayers_tab, "📚  Archivio Preghiere")
 
+        # Tab 4: Elenco Video YouTube
+        self.history_tab = VideoHistoryTab()
+        self.tabs.addTab(self.history_tab, "🎬  Archivio Video")
+
         self.setCentralWidget(self.tabs)
 
     # ── Status bar ────────────────────────────────────────────────────────
@@ -123,6 +128,8 @@ class MainWindow(QMainWindow):
             self._on_transcription_ready)
         self.transcription_tab.status_update.connect(
             self.status_bar.showMessage)
+        self.history_tab.request_transcription.connect(
+            self.prayers_tab.start_agent_manual)
 
     def _on_transcription_ready(self, file_path: str, text: str):
         """Quando una trascrizione è pronta, caricala nell'editor e cambia tab."""
